@@ -1,0 +1,25 @@
+[package]
+name = "transcrever"
+version = "0.1.0"
+description = "Offline desktop transcription app"
+authors = ["Transcrever"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.57"
+default-run = "transcrever"
+
+[lib]
+name = "transcrever_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

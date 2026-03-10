@@ -1,0 +1,2 @@
+# Add app icons here. Run: npm run tauri icon path/to/your/icon.png
+# Or remove the icon array from tauri.conf.json to use Tauri defaults for development.
