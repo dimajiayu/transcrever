@@ -4,14 +4,16 @@
 mod commands;
 mod export;
 mod transcription;
+mod types;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            commands::greet,
-            commands::validate_audio_path,
-            // Future: commands::start_transcription, commands::export_txt, commands::export_docx
+            commands::validate::validate_audio_file,
+            commands::transcribe::transcribe_audio,
+            commands::export_commands::export_txt,
+            commands::export_commands::export_docx,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
