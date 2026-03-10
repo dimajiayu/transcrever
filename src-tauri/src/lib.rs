@@ -10,7 +10,8 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::greet,
-            // Future: commands::validate_audio, commands::start_transcription, commands::export_txt, commands::export_docx
+            commands::validate_audio_path,
+            // Future: commands::start_transcription, commands::export_txt, commands::export_docx
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

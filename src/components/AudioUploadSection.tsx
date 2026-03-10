@@ -1,5 +1,6 @@
 /**
  * Audio upload section: drag-and-drop, file picker, selected file info.
+ * Supports validation error display and user-friendly messages.
  */
 
 import type { SelectedFile } from "../types";
@@ -11,12 +12,15 @@ export interface AudioUploadSectionProps {
   onPickFile: () => void;
   isDragOver?: boolean;
   onDragOver: (over: boolean) => void;
+  /** Shown when a file was rejected by validation (e.g. wrong type or too large). */
+  validationError?: string | null;
 }
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 export function AudioUploadSection({
@@ -26,6 +30,7 @@ export function AudioUploadSection({
   onPickFile,
   isDragOver = false,
   onDragOver,
+  validationError = null,
 }: AudioUploadSectionProps) {
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -98,6 +103,11 @@ export function AudioUploadSection({
           <p className="mt-2 text-xs text-gray-500">
             MP3, WAV, M4A, MP4
           </p>
+          {validationError && (
+            <p className="mt-3 text-sm text-red-600" role="alert">
+              {validationError}
+            </p>
+          )}
         </div>
       )}
     </section>

@@ -22,17 +22,13 @@ export function ActionSection({
         disabled={!hasFile || isLoading}
         className="flex items-center justify-center gap-2 rounded-md bg-gray-900 px-6 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-800"
       >
-        {isLoading ? (
-          <>
-            <span
-              className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-              aria-hidden
-            />
-            A transcrever…
-          </>
-        ) : (
-          "Iniciar transcrição"
+        {isLoading && (
+          <span
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent"
+            aria-hidden
+          />
         )}
+        <span>{isLoading ? "A transcrever…" : "Iniciar transcrição"}</span>
       </button>
     </section>
   );
