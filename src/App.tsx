@@ -284,7 +284,7 @@ export default function App() {
   const handleExportTxt = useCallback(async () => {
     if (transcriptEmpty) return;
     setExportFeedback(null);
-    const result = await exportTxtToFile(transcript);
+    const result = await exportTxtToFile(transcript, transcriptSegments, selectedFile?.name ?? undefined);
     if (result.success) {
       setExportFeedback({ message: "Ficheiro guardado.", success: true });
       setTimeout(() => setExportFeedback(null), 4000);
@@ -293,13 +293,13 @@ export default function App() {
       setTimeout(() => setExportFeedback(null), 4000);
     }
     // User cancelled: no message shown.
-  }, [transcript, transcriptEmpty]);
+  }, [transcript, transcriptEmpty, transcriptSegments, selectedFile?.name]);
 
   /** Export transcript to DOCX: save dialog then Tauri command; show success/error feedback. */
   const handleExportDocx = useCallback(async () => {
     if (transcriptEmpty) return;
     setExportFeedback(null);
-    const result = await exportDocxToFile(transcript);
+    const result = await exportDocxToFile(transcript, transcriptSegments, selectedFile?.name ?? undefined);
     if (result.success) {
       setExportFeedback({ message: "Ficheiro guardado.", success: true });
       setTimeout(() => setExportFeedback(null), 4000);
@@ -307,7 +307,7 @@ export default function App() {
       setExportFeedback({ message: result.error, success: false });
       setTimeout(() => setExportFeedback(null), 4000);
     }
-  }, [transcript, transcriptEmpty]);
+  }, [transcript, transcriptEmpty, transcriptSegments, selectedFile?.name]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900">

@@ -1,7 +1,7 @@
 //! Shared response and error types for Tauri commands.
 //! All structs are serializable for the frontend.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Result of validating an audio file path.
 #[derive(Debug, Clone, Serialize)]
@@ -28,7 +28,7 @@ impl ValidationResult {
 }
 
 /// A single transcript segment with start/end times in seconds and text.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptSegment {
     pub start: f64,
     pub end: f64,

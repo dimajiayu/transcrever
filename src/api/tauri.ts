@@ -26,6 +26,25 @@ export function isTauriAvailable(): boolean {
   return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
 }
 
+/** Builds default export filename: audio base name + date/time + extension. Safe for all platforms (no : in time). */
+export function getDefaultExportFileName(
+  audioFileName: string,
+  extension: "txt" | "docx"
+): string {
+  const base = audioFileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[/\\:*?"<>|]/g, "_")
+    .trim() || "transcript";
+  const now = new Date();
+  const d = String(now.getDate()).padStart(2, "0");
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const y = now.getFullYear();
+  const h = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  const dateTime = `${d}.${m}.${y}_${h}-${min}`;
+  return `${base}_${dateTime}.${extension}`;
+}
+
 /**
  * Opens native file picker for audio (when running in Tauri).
  * Returns the selected file path, or null if cancelled or not in Tauri.
@@ -142,17 +161,29 @@ export async function transcribeAudio(
 
 /**
  * Opens save dialog for TXT, then exports transcript to the chosen path (UTF-8).
- * Returns backend ExportResult; path is null when user cancels (success: false, no error message).
+ * If segments are provided and have timestamps, output is formatted by section with time ranges.
+ * If audioFileName is provided, the save dialog suggests a default name: "{base}_{DD.MM.YYYY_HH-MM}.txt".
+ * Returns backend ExportResult; path is null when user cancels.
  */
-export async function exportTxtToFile(transcript: string): Promise<ExportResult> {
+export async function exportTxtToFile(
+  transcript: string,
+  segments?: Array<{ start: number; end: number; text: string }> | null,
+  audioFileName?: string | null
+): Promise<ExportResult> {
   if (!isTauriAvailable()) {
     return { success: false, error: "Exportação só disponível na aplicação desktop." };
   }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const { invoke } = await import("@tauri-apps/api/core");
 
+  const defaultPath =
+    audioFileName != null && audioFileName !== ""
+      ? getDefaultExportFileName(audioFileName, "txt")
+      : undefined;
+
   const outputPath = await save({
     filters: [{ name: "Texto", extensions: ["txt"] }],
+    ...(defaultPath != null && { defaultPath }),
   });
 
   if (outputPath === null) {
@@ -163,6 +194,7 @@ export async function exportTxtToFile(transcript: string): Promise<ExportResult>
     const result = await invoke<ExportResult>("export_txt", {
       transcriptText: transcript,
       outputPath,
+      segments: segments ?? undefined,
     });
     return {
       success: result.success,
@@ -175,18 +207,30 @@ export async function exportTxtToFile(transcript: string): Promise<ExportResult>
 }
 
 /**
- * Opens save dialog for DOCX, then exports transcript (with title and date) to the chosen path.
+ * Opens save dialog for DOCX, then exports transcript (title, date, and sections) to the chosen path.
+ * If segments are provided and have timestamps, output is formatted by section with time ranges.
+ * If audioFileName is provided, the save dialog suggests a default name: "{base}_{DD.MM.YYYY_HH-MM}.docx".
  * Returns backend ExportResult; path is null when user cancels.
  */
-export async function exportDocxToFile(transcript: string): Promise<ExportResult> {
+export async function exportDocxToFile(
+  transcript: string,
+  segments?: Array<{ start: number; end: number; text: string }> | null,
+  audioFileName?: string | null
+): Promise<ExportResult> {
   if (!isTauriAvailable()) {
     return { success: false, error: "Exportação só disponível na aplicação desktop." };
   }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const { invoke } = await import("@tauri-apps/api/core");
 
+  const defaultPath =
+    audioFileName != null && audioFileName !== ""
+      ? getDefaultExportFileName(audioFileName, "docx")
+      : undefined;
+
   const outputPath = await save({
     filters: [{ name: "Documento Word", extensions: ["docx"] }],
+    ...(defaultPath != null && { defaultPath }),
   });
 
   if (outputPath === null) {
@@ -197,6 +241,7 @@ export async function exportDocxToFile(transcript: string): Promise<ExportResult
     const result = await invoke<ExportResult>("export_docx", {
       transcriptText: transcript,
       outputPath,
+      segments: segments ?? undefined,
     });
     return {
       success: result.success,
