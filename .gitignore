@@ -6,6 +6,8 @@ dist/
 
 # Tauri / Rust
 src-tauri/target/
+# Whisper model is selected at runtime; do not bundle or commit it
+src-tauri/resources/models/
 
 # IDE
 .idea/

@@ -23,11 +23,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "app", "nsis", "msi"],
     "icon": [],
     "resources": ["resources/*"],
     "externalBin": [],
-    "copyright": "",
+    "copyright": "Copyright © 2025",
     "category": "Productivity",
     "shortDescription": "Offline audio transcription",
     "longDescription": "Upload Portuguese audio, transcribe locally with Whisper, edit and export as TXT or DOCX.",

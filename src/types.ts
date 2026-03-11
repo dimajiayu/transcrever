@@ -15,6 +15,11 @@ export interface SelectedFile {
   size?: number;
 }
 
+export interface SelectedModel {
+  name: string;
+  path: string;
+}
+
 export interface StatusState {
   status: TranscriptionStatus;
   message: string;

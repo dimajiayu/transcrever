@@ -99,3 +99,20 @@ export function validateSelectedFileLike(
   }
   return { ok: true, extension: ext as AllowedAudioExtension };
 }
+
+/** Allowed Whisper model file extension. */
+export const MODEL_EXTENSION = ".bin";
+
+/**
+ * Validates that a selected model file has the .bin extension.
+ */
+export function validateModelFileLike(name: string): { ok: true } | { ok: false; error: string } {
+  const ext = getFileExtension(name);
+  if (ext !== MODEL_EXTENSION) {
+    return {
+      ok: false,
+      error: `O modelo deve ser um ficheiro .bin (Whisper ggml). Recebido: ${ext || "sem extensão"}.`,
+    };
+  }
+  return { ok: true };
+}

@@ -7,19 +7,34 @@ import { useCallback, useRef, useState } from "react";
 import {
   Header,
   AudioUploadSection,
+  ModelSelectSection,
   ActionSection,
   StatusSection,
   TranscriptSection,
   ExportSection,
 } from "./components";
 import { FILE_INPUT_ACCEPT, MAX_FILE_SIZE_BYTES } from "./constants/upload";
-import { validateAudioFile, validateSelectedFileLike } from "./utils/fileValidation";
+import {
+  validateAudioFile,
+  validateSelectedFileLike,
+  validateModelFileLike,
+} from "./utils/fileValidation";
 import { prepareAudioFilePayload } from "./utils/upload";
-import { validateAudioPath } from "./api/tauri";
-import type { SelectedFile, TranscriptionStatus } from "./types";
+import {
+  exportDocxToFile,
+  exportTxtToFile,
+  isTauriAvailable,
+  openAudioFile,
+  openModelFile,
+  transcribeAudio,
+  validateAudioPath,
+  validateModelPath,
+} from "./api/tauri";
+import type { SelectedFile, SelectedModel, TranscriptionStatus } from "./types";
 
 const INITIAL_STATUS: TranscriptionStatus = "idle";
-const INITIAL_MESSAGE = "Seleccione um ficheiro de áudio e inicie a transcrição.";
+const INITIAL_MESSAGE =
+  "Seleccione um ficheiro de áudio, um modelo Whisper (.bin) e inicie a transcrição.";
 
 /** Builds SelectedFile from a validated File (path from Tauri when available). */
 function fileToSelectedFile(file: File): SelectedFile {
@@ -29,25 +44,51 @@ function fileToSelectedFile(file: File): SelectedFile {
 
 export default function App() {
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
   const [status, setStatus] = useState<TranscriptionStatus>(INITIAL_STATUS);
   const [statusMessage, setStatusMessage] = useState(INITIAL_MESSAGE);
   const [statusError, setStatusError] = useState<string | undefined>(undefined);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [modelValidationError, setModelValidationError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isModelDragOver, setIsModelDragOver] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFile = selectedFile !== null;
+  const hasModel = selectedModel !== null;
   const isLoading = status === "uploading" || status === "transcribing";
   const transcriptEmpty = transcript.trim().length === 0;
 
   const clearStatusError = useCallback(() => setStatusError(undefined), []);
   const clearValidationError = useCallback(() => setValidationError(null), []);
 
-  const handlePickFile = useCallback(() => {
+  const handlePickFile = useCallback(async () => {
     clearStatusError();
     clearValidationError();
-    fileInputRef.current?.click();
+    if (isTauriAvailable()) {
+      const path = await openAudioFile();
+      if (!path) return;
+      const name = path.replace(/^.*[/\\]/, "");
+      const file: SelectedFile = { name, path, size: undefined };
+      const result = validateSelectedFileLike(file, MAX_FILE_SIZE_BYTES);
+      if (!result.ok) {
+        setValidationError(result.error);
+        setStatusError(result.error);
+        setSelectedFile(null);
+        setStatus("error");
+        setStatusMessage("Ficheiro rejeitado.");
+        return;
+      }
+      setValidationError(null);
+      setStatusError(undefined);
+      setSelectedFile(file);
+      setStatus("idle");
+      setStatusMessage(INITIAL_MESSAGE);
+    } else {
+      fileInputRef.current?.click();
+    }
   }, [clearStatusError, clearValidationError]);
 
   const handleFileInputChange = useCallback(
@@ -100,48 +141,118 @@ export default function App() {
     setValidationError(null);
   }, []);
 
-  /** Validates path with Tauri, then runs transcription (mock until whisper is wired). */
+  const handlePickModel = useCallback(async () => {
+    setModelValidationError(null);
+    if (isTauriAvailable()) {
+      const path = await openModelFile();
+      if (!path) return;
+      const name = path.replace(/^.*[/\\]/, "");
+      const result = validateModelFileLike(name);
+      if (!result.ok) {
+        setModelValidationError(result.error);
+        setSelectedModel(null);
+        return;
+      }
+      setModelValidationError(null);
+      setSelectedModel({ name, path });
+    }
+  }, []);
+
+  const handleModelSelect = useCallback((model: SelectedModel) => {
+    const result = validateModelFileLike(model.name);
+    if (!result.ok) {
+      setModelValidationError(result.error);
+      setSelectedModel(null);
+      return;
+    }
+    setModelValidationError(null);
+    setSelectedModel(model);
+  }, []);
+
+  const handleClearModel = useCallback(() => {
+    setSelectedModel(null);
+    setModelValidationError(null);
+  }, []);
+
+  /** Validates audio and model paths with Tauri, then runs transcription via whisper.cpp. */
   const handleStartTranscription = useCallback(async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || !selectedModel) return;
     const payload = prepareAudioFilePayload(selectedFile);
     setStatusError(undefined);
 
     try {
-      const backendValidation = await validateAudioPath(payload.path);
-      if (!backendValidation.valid && backendValidation.error) {
+      const [audioValidation, modelValidation] = await Promise.all([
+        validateAudioPath(payload.path),
+        validateModelPath(selectedModel.path),
+      ]);
+      if (!audioValidation.valid && audioValidation.error) {
         setStatus("error");
-        setStatusMessage("Erro de validação.");
-        setStatusError(backendValidation.error);
+        setStatusMessage("Erro de validação do áudio.");
+        setStatusError(audioValidation.error);
+        return;
+      }
+      if (!modelValidation.valid && modelValidation.error) {
+        setStatus("error");
+        setStatusMessage("Erro de validação do modelo.");
+        setStatusError(modelValidation.error);
         return;
       }
     } catch (e) {
-      // Tauri not available (e.g. browser dev); allow mock transcription
-      console.warn("Tauri validate_audio_path not available:", e);
+      setStatus("error");
+      setStatusMessage("Transcrição indisponível.");
+      setStatusError("A transcrição requer a aplicação desktop (npm run tauri:dev).");
+      return;
     }
 
     setStatus("transcribing");
     setStatusMessage("A processar o áudio…");
 
-    // TODO: replace with invoke('start_transcription', { path: payload.path })
-    setTimeout(() => {
-      setStatus("success");
-      setStatusMessage("Transcrição concluída.");
-      setTranscript(
-        "[Transcrição simulada]\n\nEste é um texto de exemplo. Quando o motor de transcrição (whisper.cpp) estiver ligado, o conteúdo real do áudio aparecerá aqui.\n\nPode editar o texto antes de exportar."
-      );
-    }, 2500);
-  }, [selectedFile]);
+    try {
+      const result = await transcribeAudio(payload.path, selectedModel.path);
+      if (result.success && result.text !== undefined) {
+        setStatus("success");
+        setStatusMessage("Transcrição concluída.");
+        setTranscript(result.text ?? "");
+      } else {
+        setStatus("error");
+        setStatusMessage("Erro na transcrição.");
+        setStatusError(result.error ?? "Erro desconhecido.");
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setStatus("error");
+      setStatusMessage("Erro na transcrição.");
+      setStatusError(message);
+    }
+  }, [selectedFile, selectedModel]);
 
-  /** Placeholder: export TXT (mock until backend export is connected). */
-  const handleExportTxt = useCallback(() => {
+  /** Export transcript to TXT: save dialog then Tauri command; show success/error feedback. */
+  const handleExportTxt = useCallback(async () => {
     if (transcriptEmpty) return;
-    console.log("Export TXT (mock):", transcript.slice(0, 80) + "...");
+    setExportFeedback(null);
+    const result = await exportTxtToFile(transcript);
+    if (result.success) {
+      setExportFeedback({ message: "Ficheiro guardado.", success: true });
+      setTimeout(() => setExportFeedback(null), 4000);
+    } else if (result.error) {
+      setExportFeedback({ message: result.error, success: false });
+      setTimeout(() => setExportFeedback(null), 4000);
+    }
+    // User cancelled: no message shown.
   }, [transcript, transcriptEmpty]);
 
-  /** Placeholder: export DOCX (mock until backend export is connected). */
-  const handleExportDocx = useCallback(() => {
+  /** Export transcript to DOCX: save dialog then Tauri command; show success/error feedback. */
+  const handleExportDocx = useCallback(async () => {
     if (transcriptEmpty) return;
-    console.log("Export DOCX (mock):", transcript.slice(0, 80) + "...");
+    setExportFeedback(null);
+    const result = await exportDocxToFile(transcript);
+    if (result.success) {
+      setExportFeedback({ message: "Ficheiro guardado.", success: true });
+      setTimeout(() => setExportFeedback(null), 4000);
+    } else if (result.error) {
+      setExportFeedback({ message: result.error, success: false });
+      setTimeout(() => setExportFeedback(null), 4000);
+    }
   }, [transcript, transcriptEmpty]);
 
   return (
@@ -165,8 +276,18 @@ export default function App() {
           onDragOver={setIsDragOver}
           validationError={validationError}
         />
+        <ModelSelectSection
+          selectedModel={selectedModel}
+          onModelSelect={handleModelSelect}
+          onClearModel={handleClearModel}
+          onPickModel={handlePickModel}
+          isDragOver={isModelDragOver}
+          onDragOver={setIsModelDragOver}
+          validationError={modelValidationError}
+        />
         <ActionSection
           hasFile={hasFile}
+          hasModel={hasModel}
           isLoading={isLoading}
           onStartTranscription={handleStartTranscription}
         />
@@ -180,6 +301,7 @@ export default function App() {
           transcriptEmpty={transcriptEmpty}
           onExportTxt={handleExportTxt}
           onExportDocx={handleExportDocx}
+          exportFeedback={exportFeedback}
         />
       </main>
     </div>

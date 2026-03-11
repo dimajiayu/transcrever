@@ -1,17 +1,25 @@
 /**
  * Export section: Export TXT and Export DOCX buttons (disabled when empty).
+ * Shows success/error feedback after export.
  */
+
+export interface ExportFeedback {
+  message: string;
+  success: boolean;
+}
 
 export interface ExportSectionProps {
   transcriptEmpty: boolean;
   onExportTxt: () => void;
   onExportDocx: () => void;
+  exportFeedback?: { message: string; success: boolean } | null;
 }
 
 export function ExportSection({
   transcriptEmpty,
   onExportTxt,
   onExportDocx,
+  exportFeedback = null,
 }: ExportSectionProps) {
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
@@ -34,6 +42,14 @@ export function ExportSection({
           Exportar DOCX
         </button>
       </div>
+      {exportFeedback && (
+        <p
+          role="status"
+          className={`mt-3 text-sm ${exportFeedback.success ? "text-green-700" : "text-red-700"}`}
+        >
+          {exportFeedback.message}
+        </p>
+      )}
     </section>
   );
 }
