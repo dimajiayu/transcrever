@@ -17,6 +17,7 @@ export interface ExportResult {
 export interface TranscriptResult {
   success: boolean;
   text?: string | null;
+  segments?: Array<{ start: number; end: number; text: string }> | null;
   error?: string | null;
 }
 
@@ -95,6 +96,24 @@ export async function validateModelPath(path: string): Promise<ValidateAudioPath
 }
 
 /**
+ * Converts the given audio file (e.g. M4A, MP4) to WAV using ffmpeg (44.1 kHz, 16-bit mono).
+ * Returns the path to the temporary WAV file. Requires ffmpeg to be installed.
+ */
+export async function convertAudioToWav(inputPath: string): Promise<{ path: string } | { error: string }> {
+  if (!isTauriAvailable()) {
+    return { error: "Conversão só disponível na aplicação desktop." };
+  }
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const path = await invoke<string>("convert_audio_to_wav", { inputPath });
+    return { path };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { error: message };
+  }
+}
+
+/**
  * Runs transcription on the given audio file with the given model via the backend (whisper.cpp).
  * When not running in Tauri, returns { success: false, error: "…" } so the UI can show that the desktop app is required.
  */
@@ -116,6 +135,7 @@ export async function transcribeAudio(
   return {
     success: result.success,
     text: result.text ?? null,
+    segments: result.segments ?? null,
     error: result.error ?? null,
   };
 }

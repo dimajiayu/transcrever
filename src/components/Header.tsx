@@ -9,10 +9,10 @@ export interface HeaderProps {
 
 export function Header({ title = "Transcrever", subtitle = "Transcrição de áudio offline" }: HeaderProps) {
   return (
-    <header className="border-b border-gray-200 bg-white px-6 py-4">
-      <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+    <header className="shrink-0 border-b border-gray-200 bg-white px-4 py-3">
+      <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
       {subtitle && (
-        <p className="mt-0.5 text-sm text-gray-500">{subtitle}</p>
+        <p className="text-xs text-gray-500">{subtitle}</p>
       )}
     </header>
   );

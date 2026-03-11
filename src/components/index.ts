@@ -1,7 +1,10 @@
 export { Header } from "./Header";
+export { ControlsSection } from "./ControlsSection";
 export { AudioUploadSection } from "./AudioUploadSection";
 export { ModelSelectSection } from "./ModelSelectSection";
 export { ActionSection } from "./ActionSection";
+export { AudioPlayer } from "./AudioPlayer";
 export { StatusSection } from "./StatusSection";
 export { TranscriptSection } from "./TranscriptSection";
+export { TranscriptSegments } from "./TranscriptSegments";
 export { ExportSection } from "./ExportSection";

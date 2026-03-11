@@ -9,6 +9,12 @@ export type TranscriptionStatus =
   | "success"
   | "error";
 
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
 export interface SelectedFile {
   name: string;
   path: string;

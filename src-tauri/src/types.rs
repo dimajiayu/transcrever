@@ -27,6 +27,14 @@ impl ValidationResult {
     }
 }
 
+/// A single transcript segment with start/end times in seconds and text.
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscriptSegment {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
 /// Result of a transcription request.
 #[derive(Debug, Clone, Serialize)]
 pub struct TranscriptResult {
@@ -34,14 +42,18 @@ pub struct TranscriptResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<TranscriptSegment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 impl TranscriptResult {
-    pub fn ok(text: impl Into<String>) -> Self {
+    pub fn ok(text: impl Into<String>, segments: Vec<TranscriptSegment>) -> Self {
+        let text = text.into();
         Self {
             success: true,
-            text: Some(text.into()),
+            text: Some(text.clone()),
+            segments: Some(segments),
             error: None,
         }
     }
@@ -50,6 +62,7 @@ impl TranscriptResult {
         Self {
             success: false,
             text: None,
+            segments: None,
             error: Some(message.into()),
         }
     }

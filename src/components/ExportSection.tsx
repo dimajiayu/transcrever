@@ -22,34 +22,32 @@ export function ExportSection({
   exportFeedback = null,
 }: ExportSectionProps) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-sm font-medium text-gray-700">Exportar</h2>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onExportTxt}
-          disabled={transcriptEmpty}
-          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50"
-        >
-          Exportar TXT
-        </button>
-        <button
-          type="button"
-          onClick={onExportDocx}
-          disabled={transcriptEmpty}
-          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50"
-        >
-          Exportar DOCX
-        </button>
-      </div>
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
+      <span className="text-xs font-medium text-gray-500">Exportar</span>
+      <button
+        type="button"
+        onClick={onExportTxt}
+        disabled={transcriptEmpty}
+        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50"
+      >
+        TXT
+      </button>
+      <button
+        type="button"
+        onClick={onExportDocx}
+        disabled={transcriptEmpty}
+        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-50"
+      >
+        DOCX
+      </button>
       {exportFeedback && (
-        <p
+        <span
           role="status"
-          className={`mt-3 text-sm ${exportFeedback.success ? "text-green-700" : "text-red-700"}`}
+          className={`text-sm ${exportFeedback.success ? "text-green-700" : "text-red-700"}`}
         >
           {exportFeedback.message}
-        </p>
+        </span>
       )}
-    </section>
+    </div>
   );
 }

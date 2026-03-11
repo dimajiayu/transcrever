@@ -1,15 +1,16 @@
 # Transcrever
 
-Offline desktop app to upload Portuguese audio, transcribe it locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp), edit the transcript, and export as TXT or DOCX. The app bundles only the whisper.cpp binary; you select the Whisper model (`.bin`) at runtime from the UI.
+Offline desktop app to upload Portuguese audio, transcribe it locally with [whisper.cpp](https://github.com/ggerganov/whisper.cpp), edit the transcript, and export as TXT or DOCX. The app bundles only the whisper.cpp binary; you select the Whisper model (`.bin`) at runtime from the UI. After transcription you can play the audio in-app and see the transcript segments highlighted in sync with playback; clicking a segment seeks the audio to that position.
 
 ## Project purpose
 
 - **Fully offline**: no cloud APIs, no internet after install.
 - **Local transcription**: uses [whisper.cpp](https://github.com/ggerganov/whisper.cpp); the **model is chosen by the user** at runtime (not bundled).
-- **Supported input**: MP3, WAV, M4A, MP4 (audio track).
+- **Supported input**: MP3, WAV, M4A, MP4 (audio track). The bundled whisper-cli typically supports **flac, mp3, ogg, wav**; if M4A/MP4 gives empty transcription, convert to WAV first (e.g. `ffmpeg -i audio.m4a -ar 16000 -ac 1 audio.wav`).
 - **Model**: Any Whisper ggml `.bin` file (e.g. ggml-base.bin, ggml-small.bin) selected in the app.
 - **Default language**: Portuguese (`pt`).
 - **Export**: TXT and DOCX.
+- **Synchronized playback**: After transcription, an in-app audio player lets you play the file; the transcript is shown as timestamped segments, the active segment is highlighted during playback, and clicking a segment seeks the audio to that time. Export uses the plain transcript text (no timestamps in TXT/DOCX for MVP).
 
 Stack: **Tauri 2**, **React**, **TypeScript**, **Tailwind CSS**, **Rust** backend with commands for validation, transcription, and export.
 

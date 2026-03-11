@@ -6,11 +6,10 @@
 import { useCallback, useRef, useState } from "react";
 import {
   Header,
-  AudioUploadSection,
-  ModelSelectSection,
-  ActionSection,
-  StatusSection,
+  ControlsSection,
+  AudioPlayer,
   TranscriptSection,
+  TranscriptSegments,
   ExportSection,
 } from "./components";
 import { FILE_INPUT_ACCEPT, MAX_FILE_SIZE_BYTES } from "./constants/upload";
@@ -29,8 +28,9 @@ import {
   transcribeAudio,
   validateAudioPath,
   validateModelPath,
+  convertAudioToWav,
 } from "./api/tauri";
-import type { SelectedFile, SelectedModel, TranscriptionStatus } from "./types";
+import type { SelectedFile, SelectedModel, TranscriptionStatus, TranscriptSegment } from "./types";
 
 const INITIAL_STATUS: TranscriptionStatus = "idle";
 const INITIAL_MESSAGE =
@@ -42,6 +42,15 @@ function fileToSelectedFile(file: File): SelectedFile {
   return { name: file.name, path, size: file.size };
 }
 
+function isM4aOrMp4(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.endsWith(".m4a") || lower.endsWith(".mp4");
+}
+
+function replaceExtensionToWav(name: string): string {
+  return name.replace(/\.(m4a|mp4)$/i, ".wav");
+}
+
 export default function App() {
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
@@ -51,14 +60,20 @@ export default function App() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [modelValidationError, setModelValidationError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isModelDragOver, setIsModelDragOver] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<{ message: string; success: boolean } | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFile = selectedFile !== null;
   const hasModel = selectedModel !== null;
-  const isLoading = status === "uploading" || status === "transcribing";
+  const showConvertSuggestion = hasFile && isM4aOrMp4(selectedFile!.name);
+  const isLoading = status === "uploading" || status === "transcribing" || isConverting;
   const transcriptEmpty = transcript.trim().length === 0;
 
   const clearStatusError = useCallback(() => setStatusError(undefined), []);
@@ -135,6 +150,8 @@ export default function App() {
 
   const handleClearFile = useCallback(() => {
     setSelectedFile(null);
+    setTranscript("");
+    setTranscriptSegments([]);
     setStatus(INITIAL_STATUS);
     setStatusMessage(INITIAL_MESSAGE);
     setStatusError(undefined);
@@ -173,6 +190,34 @@ export default function App() {
     setSelectedModel(null);
     setModelValidationError(null);
   }, []);
+
+  const handleConvertToWav = useCallback(async () => {
+    if (!selectedFile || !isM4aOrMp4(selectedFile.name)) return;
+    setStatusError(undefined);
+    setIsConverting(true);
+    try {
+      const result = await convertAudioToWav(selectedFile.path);
+      if ("path" in result) {
+        setSelectedFile({
+          name: replaceExtensionToWav(selectedFile.name),
+          path: result.path,
+          size: undefined,
+        });
+        setStatusMessage(INITIAL_MESSAGE);
+      } else {
+        setStatusError(result.error);
+        setStatus("error");
+        setStatusMessage("Erro na conversão.");
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setStatusError(message);
+      setStatus("error");
+      setStatusMessage("Erro na conversão.");
+    } finally {
+      setIsConverting(false);
+    }
+  }, [selectedFile]);
 
   /** Validates audio and model paths with Tauri, then runs transcription via whisper.cpp. */
   const handleStartTranscription = useCallback(async () => {
@@ -213,6 +258,7 @@ export default function App() {
         setStatus("success");
         setStatusMessage("Transcrição concluída.");
         setTranscript(result.text ?? "");
+        setTranscriptSegments(result.segments ?? []);
       } else {
         setStatus("error");
         setStatusMessage("Erro na transcrição.");
@@ -225,6 +271,14 @@ export default function App() {
       setStatusError(message);
     }
   }, [selectedFile, selectedModel]);
+
+  const handleSeekTo = useCallback((timeSeconds: number) => {
+    const el = audioRef.current;
+    if (el) {
+      el.currentTime = timeSeconds;
+      setPlaybackTime(timeSeconds);
+    }
+  }, []);
 
   /** Export transcript to TXT: save dialog then Tauri command; show success/error feedback. */
   const handleExportTxt = useCallback(async () => {
@@ -256,9 +310,9 @@ export default function App() {
   }, [transcript, transcriptEmpty]);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900">
       <Header />
-      <main className="mx-auto max-w-2xl space-y-4 p-6">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-2 md:mx-auto md:max-w-3xl md:w-full">
         <input
           ref={fileInputRef}
           type="file"
@@ -267,36 +321,62 @@ export default function App() {
           onChange={handleFileInputChange}
           aria-hidden
         />
-        <AudioUploadSection
+        <ControlsSection
           selectedFile={selectedFile}
-          onFileSelect={handleFileSelect}
-          onClearFile={handleClearFile}
-          onPickFile={handlePickFile}
-          isDragOver={isDragOver}
-          onDragOver={setIsDragOver}
-          validationError={validationError}
-        />
-        <ModelSelectSection
           selectedModel={selectedModel}
-          onModelSelect={handleModelSelect}
-          onClearModel={handleClearModel}
-          onPickModel={handlePickModel}
-          isDragOver={isModelDragOver}
-          onDragOver={setIsModelDragOver}
-          validationError={modelValidationError}
-        />
-        <ActionSection
+          status={status}
+          statusMessage={statusMessage}
+          statusError={statusError}
+          validationError={validationError}
+          modelValidationError={modelValidationError}
           hasFile={hasFile}
           hasModel={hasModel}
           isLoading={isLoading}
+          onPickFile={handlePickFile}
+          onClearFile={handleClearFile}
+          onPickModel={handlePickModel}
+          onClearModel={handleClearModel}
+          onFileSelect={handleFileSelect}
+          onModelSelect={handleModelSelect}
           onStartTranscription={handleStartTranscription}
+          isDragOver={isDragOver}
+          isModelDragOver={isModelDragOver}
+          onDragOver={setIsDragOver}
+          onModelDragOver={setIsModelDragOver}
         />
-        <StatusSection
-          status={status}
-          message={statusMessage}
-          error={statusError}
+        {showConvertSuggestion && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+            <p className="text-sm text-amber-800">
+              M4A/MP4: converter para WAV para melhor compatibilidade.
+            </p>
+            <button
+              type="button"
+              onClick={handleConvertToWav}
+              disabled={isConverting}
+              className="shrink-0 rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-amber-800"
+            >
+              {isConverting ? "A converter…" : "Converter para WAV"}
+            </button>
+          </div>
+        )}
+        <AudioPlayer
+          audioPath={selectedFile?.path ?? null}
+          onTimeUpdate={setPlaybackTime}
+          onDurationChange={setAudioDuration}
+          audioRef={audioRef}
         />
-        <TranscriptSection transcript={transcript} onChange={setTranscript} />
+        <div className="flex max-h-[calc(100vh-20rem)] min-h-0 flex-1 flex-col overflow-hidden">
+          {transcriptSegments.length > 0 ? (
+            <TranscriptSegments
+              segments={transcriptSegments}
+              currentTime={playbackTime}
+              duration={audioDuration}
+              onSeek={handleSeekTo}
+            />
+          ) : (
+            <TranscriptSection transcript={transcript} onChange={setTranscript} />
+          )}
+        </div>
         <ExportSection
           transcriptEmpty={transcriptEmpty}
           onExportTxt={handleExportTxt}
