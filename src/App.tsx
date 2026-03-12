@@ -68,6 +68,8 @@ export default function App() {
   const [isModelDragOver, setIsModelDragOver] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const [engineMode, setEngineMode] = useState<"accelerate" | "portable" | null>(null);
+  const [compatibilityWarning, setCompatibilityWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFile = selectedFile !== null;
@@ -250,7 +252,11 @@ export default function App() {
     }
 
     setStatus("transcribing");
-    setStatusMessage("A processar o áudio…");
+    setStatusMessage(
+      "A processar o áudio… Em Macs mais antigos ou sem aceleração, a primeira transcrição pode demorar vários minutos. Aguarde."
+    );
+    setEngineMode(null);
+    setCompatibilityWarning(null);
 
     try {
       const result = await transcribeAudio(payload.path, selectedModel.path);
@@ -259,6 +265,10 @@ export default function App() {
         setStatusMessage("Transcrição concluída.");
         setTranscript(result.text ?? "");
         setTranscriptSegments(result.segments ?? []);
+        setEngineMode(result.engine_used ?? null);
+        setCompatibilityWarning(
+          result.fallback_used && result.warning ? result.warning : null
+        );
       } else {
         setStatus("error");
         setStatusMessage("Erro na transcrição.");
@@ -332,6 +342,8 @@ export default function App() {
           hasFile={hasFile}
           hasModel={hasModel}
           isLoading={isLoading}
+          engineMode={engineMode}
+          compatibilityWarning={compatibilityWarning}
           onPickFile={handlePickFile}
           onClearFile={handleClearFile}
           onPickModel={handlePickModel}

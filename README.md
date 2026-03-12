@@ -43,13 +43,13 @@ Stack: **Tauri 2**, **React**, **TypeScript**, **Tailwind CSS**, **Rust** backen
 
 3. **Optional: app icons**
 
-   For a proper bundle you need icons. From project root:
+   For a proper bundle you need icons. From project root, generate all required icon sizes and formats from a single source image (e.g. `icon.png` in `src-tauri/icons/`):
 
    ```bash
-   npm run tauri icon path/to/your/icon.png
+   npx tauri icon src-tauri/icons/icon.png
    ```
 
-   Icons are generated into `src-tauri/icons/`. Without this, development still works; the packager may use defaults or warn.
+   This generates (or overwrites) files in `src-tauri/icons/`, including `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns` (macOS), and `icon.ico` (Windows). The build uses these via `tauri.conf.json`; without them, the packager may use defaults or warn.
 
 ---
 
@@ -84,7 +84,7 @@ The Tauri build bundles the **app frontend** and the **whisper.cpp executable** 
 | Component | How it’s included |
 |-----------|-------------------|
 | **Frontend** | Built by `npm run build` (Vite → `dist/`); Tauri packs it into the app. |
-| **Whisper binary** | Must be placed in `src-tauri/resources/` as `whisper-cli` (macOS/Linux) or `whisper-cli.exe` (Windows). Bundled via `bundle.resources`. |
+| **Whisper binary** | **macOS:** place `whisper-accelerate` and `whisper-portable` in `src-tauri/resources/`. The app uses the accelerated binary by default; if it fails at runtime (e.g. dyld/symbol errors on older Macs), it automatically falls back to the portable binary and shows a “compatibility mode” notice. **Windows:** `whisper-cli.exe`. **Linux:** `whisper-cli`. Bundled via `bundle.resources`. |
 | **Whisper model** | **Not bundled.** User selects a `.bin` file at runtime (file picker or drag-and-drop). |
 
 See **Resource/binary placement** below and **`src-tauri/RESOURCES.md`** for exact paths and behaviour at runtime.
@@ -114,8 +114,9 @@ Before the first release build, ensure the whisper binary is in place. The model
 
 | Item | Location (relative to `src-tauri/`) | Notes |
 |------|-------------------------------------|--------|
-| Whisper CLI (macOS/Linux) | `resources/whisper-cli` | No extension; must be executable (`chmod +x whisper-cli` on Unix). Use the full CLI binary, not the small `main`. |
-| Whisper CLI (Windows) | `resources/whisper-cli.exe` | Build whisper.cpp on Windows or cross-compile. |
+| Whisper (macOS) | `resources/whisper-accelerate`, `resources/whisper-portable` | Two binaries: app tries **accelerate** first (faster); on runtime/linker failure it falls back to **portable** and shows a compatibility-mode message. Both must be executable (`chmod +x`). See **`src-tauri/RESOURCES.md`** for build options. |
+| Whisper (Linux) | `resources/whisper-cli` | Single binary; must be executable. |
+| Whisper (Windows) | `resources/whisper-cli.exe` | Build whisper.cpp on Windows or cross-compile. |
 | Whisper model | **Not in repo.** User selects a `.bin` file at runtime. | Download from whisper.cpp (e.g. ggml-base.bin) and choose it in the app. |
 
 Full details (including how the backend invokes whisper and how the model is passed): **`src-tauri/RESOURCES.md`**.
@@ -123,8 +124,8 @@ Full details (including how the backend invokes whisper and how the model is pas
 ### Release checklist
 
 - [ ] **Version**: Bump `version` in `tauri.conf.json` (and optionally `package.json`) for the release.
-- [ ] **Icons**: Run `npm run tauri icon path/to/icon.png` so installers and the app use your icon (otherwise Tauri may use defaults).
-- [ ] **Resources**: Place `whisper-cli` (and/or `whisper-cli.exe`) in `src-tauri/resources/` as above; run `npm run tauri:build`. No model is bundled; users select a model in the app.
+- [ ] **Icons**: Run `npx tauri icon src-tauri/icons/icon.png` (or your source image) so installers and the app use your icon; outputs go to `src-tauri/icons/` (otherwise Tauri may use defaults).
+- [ ] **Resources**: On macOS place `whisper-accelerate` and `whisper-portable` in `src-tauri/resources/`; on Windows `whisper-cli.exe`; on Linux `whisper-cli`. Run `npm run tauri:build`. No model is bundled; users select a model in the app.
 - [ ] **Test**: Run the built app (e.g. open the `.app` on macOS or run the installed app on Windows); test upload → transcribe → export TXT/DOCX.
 - [ ] **macOS (optional)**: For distribution outside the App Store, consider code signing and notarization (see **Platform-specific notes** below).
 - [ ] **Windows**: Ensure the installer is tested on a clean machine with WebView2 installed (or rely on the installer to prompt for it if configured).
@@ -133,6 +134,7 @@ Full details (including how the backend invokes whisper and how the model is pas
 
 - **macOS**
   - The bundled `whisper-cli` binary must be executable: run `chmod +x src-tauri/resources/whisper-cli` before building if you copied it from another machine.
+  - **Portable build (other Macs):** Rebuild whisper.cpp with **static linking** (`-DBUILD_SHARED_LIBS=OFF`) and **`-DGGML_BLAS=OFF -DGGML_ACCELERATE=OFF`** so the app doesn’t depend on `libwhisper.1.dylib` or the Accelerate framework. If on another Mac you see **"Symbol not found: _cblas_sgemm$NEWLAPACK$ILP64"**, or `otool -L whisper-cli` still shows Accelerate, add **`-DGGML_ACCELERATE=OFF`** (ggml enables both BLAS and Accelerate on Apple). See **`src-tauri/RESOURCES.md`** § 1.1 and § 1.2.
   - For distribution outside the Mac App Store, you typically need to **code sign** the app and **notarize** it with Apple; otherwise users may see security warnings. This requires an Apple Developer account and is not required for local or internal builds.
   - Building for **Apple Silicon** vs **Intel**: build on the target architecture or use cross-compilation; the same `resources/` layout applies.
 

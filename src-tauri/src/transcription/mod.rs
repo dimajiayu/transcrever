@@ -1,6 +1,6 @@
 //! Transcription logic: invoke bundled whisper.cpp and parse output.
-//! Binary is bundled; model path is provided by the user at runtime.
-//! Produces both plain transcript text and timestamped segments for sync playback.
+//! On macOS, tries whisper-accelerate first and falls back to whisper-portable on runtime/linker failures.
+//! Other platforms use a single binary (whisper-cli). Model path is provided by the user at runtime.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,20 +10,30 @@ use tauri::path::BaseDirectory;
 use tauri::Manager;
 use tauri::AppHandle;
 
-use crate::types::TranscriptSegment;
+use crate::types::{EngineUsed, TranscriptSegment};
 
-/// Filename of the whisper binary (whisper.cpp CLI; .exe on Windows).
+/// Single binary name (Windows and non-macOS Unix).
 #[cfg(target_os = "windows")]
 const WHISPER_BINARY_NAME: &str = "whisper-cli.exe";
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const WHISPER_BINARY_NAME: &str = "whisper-cli";
 
-/// Path relative to BaseDirectory::Resource in the built app.
-/// Tauri preserves folder structure (bundle "resources/*" → Contents/Resources/resources/).
+/// macOS: path under resources/ to the accelerated CLI (folder/whisper-cli).
+#[cfg(target_os = "macos")]
+const WHISPER_ACCELERATE_NAME: &str = "whisper-accelerate/whisper-cli";
+/// macOS: path under resources/ to the portable CLI (folder/whisper-cli).
+#[cfg(target_os = "macos")]
+const WHISPER_PORTABLE_NAME: &str = "whisper-portable/whisper-cli";
+
+/// Resource paths for bundled binaries (must be the executable file, not a directory).
 #[cfg(target_os = "windows")]
 const WHISPER_BINARY_RESOURCE_PATH: &str = "resources/whisper-cli.exe";
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const WHISPER_BINARY_RESOURCE_PATH: &str = "resources/whisper-cli";
+#[cfg(target_os = "macos")]
+const WHISPER_ACCELERATE_RESOURCE_PATH: &str = "resources/whisper-accelerate/whisper-cli";
+#[cfg(target_os = "macos")]
+const WHISPER_PORTABLE_RESOURCE_PATH: &str = "resources/whisper-portable/whisper-cli";
 
 /// Language code for Portuguese.
 const LANGUAGE_CODE: &str = "pt";
@@ -32,6 +42,15 @@ const LANGUAGE_CODE: &str = "pt";
 pub struct TranscribeOutput {
     pub text: String,
     pub segments: Vec<TranscriptSegment>,
+}
+
+/// Outcome of transcription including which engine was used and whether fallback occurred (for macOS).
+pub struct TranscribeOutcome {
+    pub text: String,
+    pub segments: Vec<TranscriptSegment>,
+    pub engine_used: EngineUsed,
+    pub fallback_used: bool,
+    pub warning: Option<String>,
 }
 
 /// Flexible JSON segment shape from whisper.cpp (-oj). Different versions use different field names.
@@ -95,31 +114,55 @@ impl std::fmt::Display for TranscriptionError {
     }
 }
 
-/// Resolves the path to the bundled whisper binary.
-/// In dev (debug build) uses src-tauri/resources/; in release uses the app bundle resource dir.
-fn resolve_whisper_binary(app: &AppHandle) -> Result<PathBuf, TranscriptionError> {
+impl TranscriptionError {
+    /// Returns a string slice suitable for fallback detection (dyld, symbol, etc.).
+    fn stderr_or_message(&self) -> &str {
+        static EMPTY: &str = "";
+        match self {
+            TranscriptionError::SpawnFailed(s) => s.as_str(),
+            TranscriptionError::ProcessError { stderr, .. } => stderr.as_str(),
+            _ => EMPTY,
+        }
+    }
+
+    /// True if this error suggests runtime/linker failure (try portable binary on macOS).
+    pub fn is_fallback_worthy(&self) -> bool {
+        let s = self.stderr_or_message().to_lowercase();
+        if matches!(self, TranscriptionError::SpawnFailed(_)) {
+            return true;
+        }
+        s.contains("dyld")
+            || s.contains("library not loaded")
+            || s.contains("symbol not found")
+    }
+}
+
+/// Resolves the path to a bundled binary by resource path and display name.
+/// In dev (debug build) uses src-tauri/<resource_path>; in release uses the app bundle resource dir.
+fn resolve_binary(
+    app: &AppHandle,
+    resource_path: &str,
+    binary_name: &str,
+) -> Result<PathBuf, TranscriptionError> {
     let path = if cfg!(debug_assertions) {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join(WHISPER_BINARY_NAME)
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(resource_path)
     } else {
         app.path()
-            .resolve(WHISPER_BINARY_RESOURCE_PATH, BaseDirectory::Resource)
+            .resolve(resource_path, BaseDirectory::Resource)
             .map_err(|_| {
                 TranscriptionError::ResourceNotFound(format!(
-                    "Binário do Whisper não encontrado (esperado: {}).",
-                    WHISPER_BINARY_NAME
+                    "Binário não encontrado (esperado: {}).",
+                    binary_name
                 ))
             })?
     };
     if !path.exists() {
         let hint = if cfg!(debug_assertions) {
-            format!(
-                "Coloque {} em src-tauri/resources/ e faça chmod +x.",
-                WHISPER_BINARY_NAME
-            )
+            format!("Coloque o executável em src-tauri/{} e faça chmod +x.", resource_path)
         } else {
             format!(
-                "O binário não foi incluído na instalação. Reconstrua a aplicação (npm run tauri:build) com {} em src-tauri/resources/ e reinstale.",
-                WHISPER_BINARY_NAME
+                "Reconstrua a aplicação (npm run tauri:build) com o executável em {} e reinstale.",
+                resource_path
             )
         };
         return Err(TranscriptionError::ResourceNotFound(format!(
@@ -128,33 +171,25 @@ fn resolve_whisper_binary(app: &AppHandle) -> Result<PathBuf, TranscriptionError
             hint
         )));
     }
+    if path.is_dir() {
+        return Err(TranscriptionError::ResourceNotFound(format!(
+            "{} é uma pasta; o caminho deve ser o ficheiro executável (ex.: {}).",
+            path.display(),
+            resource_path
+        )));
+    }
     Ok(path)
 }
 
-/// Runs transcription on the given audio file using the bundled whisper.cpp binary.
-/// Uses the user-selected model path and Portuguese ("pt") as the transcription language.
-/// Returns both plain text and timestamped segments. Requests JSON output (-oj -of -) for segments;
-/// if JSON is not available or parsing fails, falls back to plain text and a single segment.
-pub fn transcribe(
+
+/// Runs transcription with a specific binary. Used by transcribe() for single-binary platforms and for each try on macOS.
+fn run_transcribe_with_binary(
+    binary: &Path,
     audio_path: &Path,
     model_path: &Path,
-    app: &AppHandle,
 ) -> Result<TranscribeOutput, TranscriptionError> {
-    let binary = resolve_whisper_binary(app)?;
-    if !model_path.exists() {
-        return Err(TranscriptionError::ResourceNotFound(format!(
-            "Modelo não encontrado em {}.",
-            model_path.display()
-        )));
-    }
-    if !model_path.is_file() {
-        return Err(TranscriptionError::ResourceNotFound(
-            "O caminho do modelo não é um ficheiro.".to_string(),
-        ));
-    }
-
     // 1) Try JSON (-oj -of -) for timestamped segments.
-    let output = Command::new(&binary)
+    let output = Command::new(binary)
         .arg("-m")
         .arg(model_path)
         .arg("-f")
@@ -192,7 +227,7 @@ pub fn transcribe(
     }
 
     // 2) Try SRT (-osrt -of -) for timestamped segments.
-    let output_srt = Command::new(&binary)
+    let output_srt = Command::new(binary)
         .arg("-m")
         .arg(model_path)
         .arg("-f")
@@ -219,7 +254,7 @@ pub fn transcribe(
     }
 
     // 3) Fallback: plain text (-otxt -of -), split by sentences into segments (start/end 0,0; frontend will distribute by duration).
-    let output_txt = Command::new(&binary)
+    let output_txt = Command::new(binary)
         .arg("-m")
         .arg(model_path)
         .arg("-f")
@@ -254,6 +289,92 @@ pub fn transcribe(
         text: text.clone(),
         segments,
     })
+}
+
+/// Runs transcription: on macOS tries whisper-accelerate first, then whisper-portable on runtime failure; other platforms use a single binary.
+/// Returns outcome with engine used and fallback flag for the UI.
+pub fn transcribe(
+    audio_path: &Path,
+    model_path: &Path,
+    app: &AppHandle,
+) -> Result<TranscribeOutcome, TranscriptionError> {
+    if !model_path.exists() {
+        return Err(TranscriptionError::ResourceNotFound(format!(
+            "Modelo não encontrado em {}.",
+            model_path.display()
+        )));
+    }
+    if !model_path.is_file() {
+        return Err(TranscriptionError::ResourceNotFound(
+            "O caminho do modelo não é um ficheiro.".to_string(),
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        const FALLBACK_WARNING: &str =
+            "A aplicação usou o modo de compatibilidade neste Mac. A transcrição pode ser mais lenta.";
+
+        // Try accelerate first if present.
+        if let Ok(accelerate_path) =
+            resolve_binary(app, WHISPER_ACCELERATE_RESOURCE_PATH, WHISPER_ACCELERATE_NAME)
+        {
+            match run_transcribe_with_binary(&accelerate_path, audio_path, model_path) {
+                Ok(out) => {
+                    return Ok(TranscribeOutcome {
+                        text: out.text,
+                        segments: out.segments,
+                        engine_used: EngineUsed::Accelerate,
+                        fallback_used: false,
+                        warning: None,
+                    });
+                }
+                Err(e) if e.is_fallback_worthy() => {
+                    // Retry with portable.
+                    let portable_path =
+                        resolve_binary(app, WHISPER_PORTABLE_RESOURCE_PATH, WHISPER_PORTABLE_NAME)?;
+                    match run_transcribe_with_binary(&portable_path, audio_path, model_path) {
+                        Ok(out) => {
+                            return Ok(TranscribeOutcome {
+                                text: out.text,
+                                segments: out.segments,
+                                engine_used: EngineUsed::Portable,
+                                fallback_used: true,
+                                warning: Some(FALLBACK_WARNING.to_string()),
+                            });
+                        }
+                        Err(e2) => return Err(e2),
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        // No accelerate binary: use portable only.
+        let portable_path =
+            resolve_binary(app, WHISPER_PORTABLE_RESOURCE_PATH, WHISPER_PORTABLE_NAME)?;
+        let out = run_transcribe_with_binary(&portable_path, audio_path, model_path)?;
+        return Ok(TranscribeOutcome {
+            text: out.text,
+            segments: out.segments,
+            engine_used: EngineUsed::Portable,
+            fallback_used: false,
+            warning: None,
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let binary = resolve_binary(app, WHISPER_BINARY_RESOURCE_PATH, WHISPER_BINARY_NAME)?;
+        let out = run_transcribe_with_binary(&binary, audio_path, model_path)?;
+        Ok(TranscribeOutcome {
+            text: out.text,
+            segments: out.segments,
+            engine_used: EngineUsed::Portable,
+            fallback_used: false,
+            warning: None,
+        })
+    }
 }
 
 /// Parses SRT subtitle format from whisper.cpp (-osrt). Returns None if parsing fails.

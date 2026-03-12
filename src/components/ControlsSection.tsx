@@ -31,6 +31,10 @@ export interface ControlsSectionProps {
   hasFile: boolean;
   hasModel: boolean;
   isLoading: boolean;
+  /** Current engine (macOS: accelerate vs portable). Shown near status when set. */
+  engineMode?: "accelerate" | "portable" | null;
+  /** Non-blocking notice when app fell back to compatibility mode (e.g. after dyld error). */
+  compatibilityWarning?: string | null;
   onPickFile: () => void;
   onClearFile: () => void;
   onPickModel: () => void;
@@ -44,6 +48,11 @@ export interface ControlsSectionProps {
   onModelDragOver: (over: boolean) => void;
 }
 
+const ENGINE_LABELS: Record<"accelerate" | "portable", string> = {
+  accelerate: "Motor: modo acelerado",
+  portable: "Motor: modo compatibilidade",
+};
+
 export function ControlsSection({
   selectedFile,
   selectedModel,
@@ -53,6 +62,8 @@ export function ControlsSection({
   validationError,
   modelValidationError,
   isLoading,
+  engineMode,
+  compatibilityWarning,
   onPickFile,
   onClearFile,
   onPickModel,
@@ -182,12 +193,12 @@ export function ControlsSection({
         </div>
 
         {/* Start */}
-        <div className="flex shrink-0 items-end gap-2">
+        <div className="flex shrink-0 items-end gap-2 overflow-x-hidden max-w-full">
           <button
             type="button"
             onClick={onStartTranscription}
             disabled={!canStart}
-            className="flex items-center gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-800"
+            className="flex items-center align-middle gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-gray-800"
           >
             {isBusy && (
               <span
@@ -199,7 +210,7 @@ export function ControlsSection({
           </button>
           {/* Inline status */}
           <span
-            className="flex items-center gap-1.5 text-xs text-gray-600"
+            className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-600 text-wrap"
             role="status"
             aria-live="polite"
           >
@@ -209,10 +220,21 @@ export function ControlsSection({
                 aria-hidden
               />
             )}
-            <span>{STATUS_LABELS[status]}: {statusMessage}</span>
+            <span className="whitespace-normal text-wrap">{STATUS_LABELS[status]}: {statusMessage}</span>
+            {engineMode != null && !isBusy && (
+              <span className="text-gray-500">· {ENGINE_LABELS[engineMode]}</span>
+            )}
           </span>
         </div>
       </div>
+      {compatibilityWarning && (
+        <div
+          className="mt-2 rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-sm text-blue-800"
+          role="status"
+        >
+          {compatibilityWarning}
+        </div>
+      )}
       {statusError && (
         <div
           className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-sm text-red-800"

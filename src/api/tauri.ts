@@ -14,11 +14,16 @@ export interface ExportResult {
   error?: string | null;
 }
 
+export type EngineUsed = "accelerate" | "portable";
+
 export interface TranscriptResult {
   success: boolean;
   text?: string | null;
   segments?: Array<{ start: number; end: number; text: string }> | null;
   error?: string | null;
+  engine_used?: EngineUsed | null;
+  fallback_used?: boolean | null;
+  warning?: string | null;
 }
 
 export function isTauriAvailable(): boolean {
@@ -156,6 +161,9 @@ export async function transcribeAudio(
     text: result.text ?? null,
     segments: result.segments ?? null,
     error: result.error ?? null,
+    engine_used: result.engine_used ?? null,
+    fallback_used: result.fallback_used ?? false,
+    warning: result.warning ?? null,
   };
 }
 

@@ -13,7 +13,7 @@ export interface StatusSectionProps {
 const statusLabels: Record<TranscriptionStatus, string> = {
   idle: "Pronto",
   uploading: "A carregar…",
-  transcribing: "A transcrever…",
+  transcribing: "A transcrever… (pode demorar vários minutos)",
   success: "Concluído",
   error: "Erro",
 };
