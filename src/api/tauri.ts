@@ -34,7 +34,7 @@ export function isTauriAvailable(): boolean {
 /** Builds default export filename: audio base name + date/time + extension. Safe for all platforms (no : in time). */
 export function getDefaultExportFileName(
   audioFileName: string,
-  extension: "txt" | "docx"
+  extension: "txt" | "docx" | "wav"
 ): string {
   const base = audioFileName
     .replace(/\.[^.]+$/, "")
@@ -120,8 +120,8 @@ export async function validateModelPath(path: string): Promise<ValidateAudioPath
 }
 
 /**
- * Converts the given audio file (e.g. M4A, MP4) to WAV using ffmpeg (44.1 kHz, 16-bit mono).
- * Returns the path to the temporary WAV file. Requires ffmpeg to be installed.
+ * Converts the given audio file (e.g. M4A, MP4, WAV) to WAV 16 kHz mono using ffmpeg.
+ * Optimal for Whisper. Returns the path to the temporary WAV file. Requires ffmpeg to be installed.
  */
 export async function convertAudioToWav(inputPath: string): Promise<{ path: string } | { error: string }> {
   if (!isTauriAvailable()) {
@@ -134,6 +134,49 @@ export async function convertAudioToWav(inputPath: string): Promise<{ path: stri
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { error: message };
+  }
+}
+
+/**
+ * Lets the user choose where to save a converted WAV file (16 kHz mono) and copies it there.
+ * Suggests a default name based on the original audio file.
+ */
+export async function saveConvertedAudioFile(
+  sourcePath: string,
+  audioFileName?: string | null
+): Promise<ExportResult> {
+  if (!isTauriAvailable()) {
+    return { success: false, error: "Guardar só disponível na aplicação desktop." };
+  }
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const { invoke } = await import("@tauri-apps/api/core");
+
+  const defaultPath =
+    audioFileName != null && audioFileName !== ""
+      ? getDefaultExportFileName(audioFileName, "wav")
+      : undefined;
+
+  const outputPath = await save({
+    filters: [{ name: "Áudio WAV", extensions: ["wav"] }],
+    ...(defaultPath != null && { defaultPath }),
+  });
+
+  if (outputPath === null) {
+    return { success: false };
+  }
+
+  try {
+    const result = await invoke<ExportResult>("save_converted_audio", {
+      sourcePath,
+      outputPath,
+    });
+    return {
+      success: result.success,
+      error: result.error ?? null,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { success: false, error: message };
   }
 }
 

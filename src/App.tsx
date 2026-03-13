@@ -29,6 +29,7 @@ import {
   validateAudioPath,
   validateModelPath,
   convertAudioToWav,
+  saveConvertedAudioFile,
 } from "./api/tauri";
 import type { SelectedFile, SelectedModel, TranscriptionStatus, TranscriptSegment } from "./types";
 
@@ -47,8 +48,17 @@ function isM4aOrMp4(name: string): boolean {
   return lower.endsWith(".m4a") || lower.endsWith(".mp4");
 }
 
+function isWav(name: string): boolean {
+  return name.toLowerCase().endsWith(".wav");
+}
+
 function replaceExtensionToWav(name: string): string {
   return name.replace(/\.(m4a|mp4)$/i, ".wav");
+}
+
+/** True when we should show the "convert to 16 kHz mono" suggestion (M4A/MP4 or WAV). */
+function showConvertToWhisperFormat(name: string): boolean {
+  return isM4aOrMp4(name) || isWav(name);
 }
 
 export default function App() {
@@ -68,13 +78,21 @@ export default function App() {
   const [isModelDragOver, setIsModelDragOver] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const [currentFileWasConverted, setCurrentFileWasConverted] = useState(false);
+  /** Original file path for playback (so user hears full quality); transcription uses selectedFile.path which may be converted. */
+  const [originalPlaybackPath, setOriginalPlaybackPath] = useState<string | null>(null);
+  /** Last converted WAV (16 kHz mono) path, so the user can save it to disk. */
+  const [convertedFilePath, setConvertedFilePath] = useState<string | null>(null);
   const [engineMode, setEngineMode] = useState<"accelerate" | "portable" | null>(null);
   const [compatibilityWarning, setCompatibilityWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFile = selectedFile !== null;
   const hasModel = selectedModel !== null;
-  const showConvertSuggestion = hasFile && isM4aOrMp4(selectedFile!.name);
+  const showConvertSuggestion =
+    hasFile &&
+    showConvertToWhisperFormat(selectedFile!.name) &&
+    !currentFileWasConverted;
   const isLoading = status === "uploading" || status === "transcribing" || isConverting;
   const transcriptEmpty = transcript.trim().length === 0;
 
@@ -93,6 +111,7 @@ export default function App() {
       if (!result.ok) {
         setValidationError(result.error);
         setStatusError(result.error);
+        setOriginalPlaybackPath(null);
         setSelectedFile(null);
         setStatus("error");
         setStatusMessage("Ficheiro rejeitado.");
@@ -100,6 +119,8 @@ export default function App() {
       }
       setValidationError(null);
       setStatusError(undefined);
+      setCurrentFileWasConverted(false);
+      setOriginalPlaybackPath(path);
       setSelectedFile(file);
       setStatus("idle");
       setStatusMessage(INITIAL_MESSAGE);
@@ -118,6 +139,7 @@ export default function App() {
       if (!result.ok) {
         setValidationError(result.error);
         setStatusError(result.error);
+        setOriginalPlaybackPath(null);
         setSelectedFile(null);
         setStatus("error");
         setStatusMessage("Ficheiro rejeitado.");
@@ -126,7 +148,10 @@ export default function App() {
 
       setValidationError(null);
       setStatusError(undefined);
-      setSelectedFile(fileToSelectedFile(file));
+      setCurrentFileWasConverted(false);
+      const selected = fileToSelectedFile(file);
+      setOriginalPlaybackPath(selected.path);
+      setSelectedFile(selected);
       setStatus("idle");
       setStatusMessage(INITIAL_MESSAGE);
     },
@@ -138,6 +163,7 @@ export default function App() {
     if (!result.ok) {
       setValidationError(result.error);
       setStatusError(result.error);
+      setOriginalPlaybackPath(null);
       setSelectedFile(null);
       setStatus("error");
       setStatusMessage("Ficheiro rejeitado.");
@@ -145,6 +171,8 @@ export default function App() {
     }
     setValidationError(null);
     setStatusError(undefined);
+    setCurrentFileWasConverted(false);
+    setOriginalPlaybackPath(file.path);
     setSelectedFile(file);
     setStatus("idle");
     setStatusMessage(INITIAL_MESSAGE);
@@ -152,6 +180,9 @@ export default function App() {
 
   const handleClearFile = useCallback(() => {
     setSelectedFile(null);
+    setOriginalPlaybackPath(null);
+    setConvertedFilePath(null);
+    setCurrentFileWasConverted(false);
     setTranscript("");
     setTranscriptSegments([]);
     setStatus(INITIAL_STATUS);
@@ -194,17 +225,22 @@ export default function App() {
   }, []);
 
   const handleConvertToWav = useCallback(async () => {
-    if (!selectedFile || !isM4aOrMp4(selectedFile.name)) return;
+    if (!selectedFile || !showConvertToWhisperFormat(selectedFile.name)) return;
     setStatusError(undefined);
     setIsConverting(true);
     try {
       const result = await convertAudioToWav(selectedFile.path);
       if ("path" in result) {
+        const displayName = isM4aOrMp4(selectedFile.name)
+          ? replaceExtensionToWav(selectedFile.name)
+          : selectedFile.name;
         setSelectedFile({
-          name: replaceExtensionToWav(selectedFile.name),
+          name: displayName,
           path: result.path,
           size: undefined,
         });
+        setConvertedFilePath(result.path);
+        setCurrentFileWasConverted(true);
         setStatusMessage(INITIAL_MESSAGE);
       } else {
         setStatusError(result.error);
@@ -220,6 +256,20 @@ export default function App() {
       setIsConverting(false);
     }
   }, [selectedFile]);
+
+  /** Let the user save the converted WAV 16 kHz mono file to disk. */
+  const handleSaveConverted = useCallback(async () => {
+    if (!convertedFilePath || !selectedFile) return;
+    const result = await saveConvertedAudioFile(convertedFilePath, selectedFile.name);
+    if (!result.success && result.error) {
+      setStatus("error");
+      setStatusMessage("Erro ao guardar ficheiro convertido.");
+      setStatusError(result.error);
+    } else if (result.success) {
+      setStatus("success");
+      setStatusMessage("Ficheiro de áudio convertido guardado.");
+    }
+  }, [convertedFilePath, selectedFile]);
 
   /** Validates audio and model paths with Tauri, then runs transcription via whisper.cpp. */
   const handleStartTranscription = useCallback(async () => {
@@ -359,7 +409,9 @@ export default function App() {
         {showConvertSuggestion && (
           <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
             <p className="text-sm text-amber-800">
-              M4A/MP4: converter para WAV para melhor compatibilidade.
+              {isM4aOrMp4(selectedFile!.name)
+                ? "M4A/MP4: converter para WAV 16 kHz mono para melhor compatibilidade."
+                : "WAV: converter para 16 kHz mono para melhor compatibilidade com o Whisper."}
             </p>
             <button
               type="button"
@@ -367,12 +419,26 @@ export default function App() {
               disabled={isConverting}
               className="shrink-0 rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-amber-800"
             >
-              {isConverting ? "A converter…" : "Converter para WAV"}
+              {isConverting ? "A converter…" : isM4aOrMp4(selectedFile!.name) ? "Converter para WAV" : "Converter para 16 kHz mono"}
+            </button>
+          </div>
+        )}
+        {convertedFilePath && selectedFile && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <p className="text-sm text-emerald-800">
+              Ficheiro convertido (WAV 16 kHz mono) pronto para guardar.
+            </p>
+            <button
+              type="button"
+              onClick={handleSaveConverted}
+              className="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800"
+            >
+              Guardar ficheiro convertido
             </button>
           </div>
         )}
         <AudioPlayer
-          audioPath={selectedFile?.path ?? null}
+          audioPath={originalPlaybackPath ?? selectedFile?.path ?? null}
           onTimeUpdate={setPlaybackTime}
           onDurationChange={setAudioDuration}
           audioRef={audioRef}

@@ -42,7 +42,8 @@ fn resolve_ffmpeg() -> Option<PathBuf> {
     None
 }
 
-/// Converts the given audio file to WAV (44.1 kHz, 16-bit mono) using ffmpeg.
+/// Converts the given audio file to WAV (16 kHz, 16-bit mono) using ffmpeg.
+/// Optimal for Whisper; accepts M4A, MP4, WAV, or other formats ffmpeg can decode.
 /// Returns the path to the temporary WAV file on success.
 /// Requires ffmpeg to be installed (e.g. `brew install ffmpeg` on macOS).
 #[command]
@@ -76,7 +77,7 @@ pub fn convert_audio_to_wav(input_path: String) -> Result<String, String> {
             "-c:a",
             "pcm_s16le",
             "-ar",
-            "44100",
+            "16000",
             "-ac",
             "1",
             output_path.to_str().unwrap(),

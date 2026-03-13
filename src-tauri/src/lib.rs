@@ -17,6 +17,7 @@ pub fn run() {
             commands::transcribe::transcribe_audio,
             commands::export_commands::export_txt,
             commands::export_commands::export_docx,
+            commands::export_commands::save_converted_audio,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

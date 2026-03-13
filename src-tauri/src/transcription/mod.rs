@@ -86,7 +86,12 @@ pub enum TranscriptionError {
         stderr: String,
     },
     /// Process succeeded but no transcript text was produced (e.g. unsupported format, silent audio, or output went to file instead of stdout).
-    EmptyOutput { stdout: String, stderr: String },
+    EmptyOutput {
+        stdout: String,
+        stderr: String,
+        /// When set, use this instead of the generic message (e.g. JSON had empty transcription).
+        hint: Option<String>,
+    },
 }
 
 impl std::fmt::Display for TranscriptionError {
@@ -102,10 +107,12 @@ impl std::fmt::Display for TranscriptionError {
                 }
                 write!(f, "Erro do motor de transcrição: {}", msg)
             }
-            TranscriptionError::EmptyOutput { stdout, stderr } => {
+            TranscriptionError::EmptyOutput { stdout, stderr, hint } => {
+                let intro = hint.as_deref().unwrap_or("Transcrição vazia. O áudio pode estar em silêncio, ser muito curto ou estar num formato que o Whisper não processou (ex.: M4A pode precisar de conversão para WAV 16 kHz).");
                 write!(
                     f,
-                    "Transcrição vazia. O áudio pode estar em silêncio, ser muito curto ou estar num formato que o Whisper não processou (ex.: M4A pode precisar de conversão para WAV 16 kHz). Saída do Whisper — stderr: {} | stdout: {}",
+                    "{}. Saída do Whisper — stderr: {} | stdout: {}",
+                    intro,
                     if stderr.is_empty() { "(vazio)" } else { stderr.as_str() },
                     if stdout.is_empty() { "(vazio)" } else { stdout.as_str() }
                 )
@@ -278,9 +285,15 @@ fn run_transcribe_with_binary(
 
     let text = parse_transcript_stdout(&txt_stdout);
     if text.is_empty() {
+        let hint = if looks_like_json_empty_transcription(&stdout_str) {
+            Some("O Whisper processou o ficheiro mas não detectou nenhuma fala. Verifique se o áudio tem voz audível, não está em silêncio e está em formato suportado (ex.: WAV 16 kHz mono). Pode usar \"Converter para WAV\" para M4A/MP4.".to_string())
+        } else {
+            None
+        };
         return Err(TranscriptionError::EmptyOutput {
             stdout: stdout_str,
             stderr: stderr_str,
+            hint,
         });
     }
 
@@ -480,6 +493,15 @@ fn split_into_sentence_segments(text: &str) -> Vec<TranscriptSegment> {
         });
     }
     segments
+}
+
+/// True if stdout looks like valid whisper JSON with an empty transcription array (no speech detected).
+fn looks_like_json_empty_transcription(stdout: &str) -> bool {
+    let s = stdout.trim();
+    s.starts_with('{')
+        && s.contains("\"transcription\"")
+        && (s.contains("\"transcription\":[]")
+            || s.contains("\"transcription\": []"))
 }
 
 /// Parses whisper.cpp JSON output (-oj) into segments. Returns None if parsing fails.
